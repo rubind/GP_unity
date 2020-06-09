@@ -1,0 +1,178 @@
+// Version History
+// Version 1; starting with a modified version of STEP6 of UNITY
+
+functions {
+    real multi_skewnormal_log (vector x, vector mu, matrix cmat, vector alpha) {
+        return multi_normal_log(x, mu, cmat)
+             + normal_cdf_log(  alpha'*(x - mu), 0, 1);
+    }
+
+
+    matrix get_kernel (matrix true_x1cs, vector x1c_kern_lengths, real A, int n_sne, int n_props) {
+        matrix [n_sne, n_sne] kernel;
+	vector [n_props - 1] scaled_offset;
+
+        for (i in 1:n_sne) {
+	    for (j in 1:n_sne) {
+	    	kernel[i,j] = 0.;
+	    }
+	}
+
+	for (i in 1:n_sne) {
+	    for (j in i:n_sne) {
+                scaled_offset = (true_x1cs[i] - true_x1cs[j])' ./ x1c_kern_lengths;
+		
+	        kernel[i, j] = A^2 * exp(-0.5*(scaled_offset' * scaled_offset ));
+		kernel[j, i] = kernel[i, j];
+	    }
+	}
+	return kernel;
+    }
+
+}
+
+data {
+    int<lower=1> n_sne; // number of SNe
+    int<lower=2> n_props;  // e.i. mb, x1, c, mass, ect
+    int<lower=1> n_sn_set;
+
+    int<lower=0, upper=n_sn_set - 1> sn_set_inds[n_sne]; // use python index numbering
+
+    vector <lower=0> [n_sne] z_helio;
+    vector <lower=0> [n_sne] z_CMB;
+    
+    vector[n_props] obs_mBx1c [n_sne];  // don't include the non-gaussian age property.
+    matrix[n_props, n_props] obs_mBx1c_cov [n_sne];
+
+    real outl_frac_prior_lnmean;
+    real outl_frac_prior_lnwidth;
+
+    //real outl_mBx1cU_uncertainties [n_props];
+    int lognormal_intr_prior;
+    int allow_alpha_S_N; // 1 if skewed population distributions
+
+}
+
+
+parameters {
+    real MB [n_sn_set];
+    vector<lower = -1.47, upper = 1.47>[n_props - 1] coeff_angles;
+
+    real <lower = 0.01> sigma_int [n_sn_set];
+    // simplex [n_props] mBx1c_int_variance;// [n_sn_set];
+
+    // This contains x1, c, host mas, age, and maybe more
+    matrix [n_sne, n_props - 1] true_x1cs;
+    vector [n_sne] true_mB;
+
+    vector [n_props - 1] x1c_star [n_sn_set];
+    vector [n_props - 1] log10_R_x1c [n_sn_set];
+    cholesky_factor_corr[n_props - 1] x1c_Lmat [n_sn_set];
+    vector [n_props - 1] alpha_S_N [n_sn_set];
+
+    // real <lower = 0, upper = 0.1> outl_frac [n_sn_set];
+
+    real <lower = 0.001, upper = 0.2> A;
+    vector <lower = 0.01, upper = 10> [n_props - 1] x1c_kern_lengths;
+
+}
+
+
+transformed parameters {
+    vector [n_props - 1] coeff;
+
+    vector [n_props - 1] R_x1c [n_sn_set];
+
+    matrix [n_props - 1, n_props - 1] x1c_rho_mat [n_sn_set];
+    matrix [n_props - 1, n_props - 1] x1c_pop_cov_mat [n_sn_set];
+
+
+
+    coeff = tan(coeff_angles);
+
+
+    for (i in 1:n_sn_set) {
+        R_x1c[i] = exp(log(10.) * log10_R_x1c[i]);
+        x1c_rho_mat[i] = x1c_Lmat[i] * x1c_Lmat[i]';
+        x1c_pop_cov_mat[i] = x1c_rho_mat[i] .* (R_x1c[i] * R_x1c[i]');
+    }
+
+}
+
+model {
+
+    // real term1;
+    // real term2;
+    // vector [n_age_mix] term3;
+
+    // This does not contain age because age is non-gaussian
+    vector [n_props] model_mBx1c [n_sne];
+
+    vector [n_sne] model_mu;
+
+    vector [n_sne] outl_loglike;
+    vector [n_sne] PointPosteriors;
+
+    matrix [n_props, n_props] outl_mBx1c_cov;
+    vector [n_sne] model_mB;
+    matrix [n_sne, n_sne] kernel;
+
+
+
+    // -------------Begin numerical integration-----------------
+
+    model_mu = (5./log(10.))*log((1. + z_helio) .* (1.00038*z_CMB - 0.227753*exp(log(z_CMB)*2) - 0.0440361*exp(log(z_CMB)*3) + 0.0619502*exp(log(z_CMB)*4) -  0.0220087*exp(log(z_CMB)*5) + 0.00289242*exp(log(z_CMB)*6)  )) + 43.1586133146;
+
+    // -------------End numerical integration---------------
+
+
+    kernel = get_kernel(true_x1cs, x1c_kern_lengths, A, n_sne, n_props);
+    // print("kernel ", x1c_kern_lengths, " ", A)
+
+    for (i in 1:n_sne) {
+    	model_mB[i] = coeff' * true_x1cs[i]' + MB[sn_set_inds[i] + 1] + model_mu[i];
+        model_mBx1c[i][1] = true_mB[i];
+	
+        for (j in 2:n_props){
+            model_mBx1c[i][j] = true_x1cs[i][j-1];
+        }
+
+
+	obs_mBx1c[i] ~ multi_normal(model_mBx1c[i], obs_mBx1c_cov[i]);
+	kernel[i,i] += sigma_int[sn_set_inds[i] + 1]^2;
+    }
+    true_mB ~ multi_normal(model_mB, kernel);
+
+
+    // target += sum(PointPosteriors);
+
+    for (i in 1:n_sne) {
+        if (allow_alpha_S_N == 1) {
+            target += multi_skewnormal_log(true_x1cs[i]', x1c_star[sn_set_inds[i] + 1],
+					        x1c_pop_cov_mat[sn_set_inds[i] + 1], alpha_S_N[sn_set_inds[i] + 1]);
+        } else {
+            true_x1cs[i] ~ multi_normal(x1c_star[sn_set_inds[i] + 1],
+					        x1c_pop_cov_mat[sn_set_inds[i] + 1]);
+        }
+    }
+
+
+
+    for (i in 1:n_sn_set) {
+        x1c_Lmat[i] ~ lkj_corr_cholesky(1.0);
+
+
+        if (lognormal_intr_prior == 1) {
+            sigma_int[i] ~ lognormal(-2.3, 0.5);
+        }
+
+        alpha_S_N[i][1] ~ normal(0, 5);
+        alpha_S_N[i][2] ~ normal(0, 50);
+        for (j in 3:(n_props - 1)) {
+            alpha_S_N[i][j] ~ normal(0, 5);
+        }
+    }
+
+    sigma_int ~ normal(0, 0.2);
+}
+
