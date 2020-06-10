@@ -2,7 +2,6 @@ import pystan
 import numpy as np
 import pickle
 import subprocess
-from DavidsNM import save_img
 from astropy.io import fits
 import matplotlib.pyplot as plt
 from copy import deepcopy
