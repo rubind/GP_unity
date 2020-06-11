@@ -55,7 +55,7 @@ print("SKEW NORMAL!!!!"*100)
 
 pfl_name = subprocess.getoutput("hostname") + "_1DGP.pickle"
 
-f = open("../stan_code_1DGP.txt", 'r')
+f = open("stan_code_1DGP.txt", 'r')
 lines = f.read()
 f.close()
 
@@ -65,7 +65,7 @@ try:
     if sc != lines:
         raise_time
 except:
-    sm = pystan.StanModel(file = "../stan_code_1DGP.txt")
+    sm = pystan.StanModel(file = "stan_code_1DGP.txt")
     pickle.dump([sm, lines], open(pfl_name, 'wb'))
     
 fit = sm.sampling(data=stan_data, iter=1000, chains=4, refresh = 10, init = initfn)
