@@ -28,7 +28,7 @@ stan_data = pickle.load(open(sys.argv[1], 'rb'))
 print("n_sne", stan_data["n_sne"])
 
 
-del stan_data["names"]
+#del stan_data["names"]
 stan_data["n_sn_set"] = len(set(stan_data["sn_set_inds"]))
 
 if min(stan_data["sn_set_inds"]) == 1:
@@ -56,7 +56,7 @@ print("SKEW NORMAL!!!!"*100)
 
 pfl_name = subprocess.getoutput("hostname") + "_1DGP.pickle"
 
-f = open("../stan_code_1DGP.txt", 'r')
+f = open("../../stan_code_1DGP.txt", 'r')
 lines = f.read()
 f.close()
 
@@ -66,7 +66,7 @@ try:
     if sc != lines:
         raise_time
 except:
-    sm = pystan.StanModel(file = "../stan_code_1DGP.txt")
+    sm = pystan.StanModel(file = "../../stan_code_1DGP.txt")
     pickle.dump([sm, lines], open(pfl_name, 'wb'))
     
 fit = sm.sampling(data=stan_data, iter=1000, chains=4, refresh = 10, init = initfn)
@@ -75,4 +75,4 @@ print(fit)
 
 fit_params = fit.extract(permuted = True)
 
-pickle.dump((stan_data, fit_params), open("results.pickle", 'wb'))
+pickle.dump((stan_data, fit_params), open("results_" + sys.argv[1], 'wb'))
